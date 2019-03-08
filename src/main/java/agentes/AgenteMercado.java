@@ -7,12 +7,15 @@ package agentes;
 
 import jade.core.AID;
 import jade.core.Agent;
+import jade.core.behaviours.CyclicBehaviour;
+import jade.core.behaviours.OneShotBehaviour;
 import jade.core.behaviours.TickerBehaviour;
 import jade.domain.DFService;
 import jade.domain.FIPAAgentManagement.DFAgentDescription;
 import jade.domain.FIPAAgentManagement.ServiceDescription;
 import jade.domain.FIPAException;
 import jade.lang.acl.ACLMessage;
+import jade.lang.acl.MessageTemplate;
 import java.util.ArrayList;
 import java.util.Random;
 
@@ -30,7 +33,8 @@ public class AgenteMercado extends Agent {
     Random rand = new Random(System.currentTimeMillis());
     private ArrayList<AID> agentesAgricultor;
     private ArrayList<AID> agentesConsola;
-    private ArrayList<String> mensajesPendientes;
+    private ArrayList<AID> agentesMonitor;
+    private ArrayList<ACLMessage> mensajesPendientes;
 
 
     @Override
@@ -38,6 +42,7 @@ public class AgenteMercado extends Agent {
         //Inicialización de las variables del agente
         agentesAgricultor = new ArrayList<>();
         agentesConsola = new ArrayList<>();
+        agentesMonitor = new ArrayList<>();
         
         //Configuración del GUI
         
@@ -99,7 +104,66 @@ public class AgenteMercado extends Agent {
     }
     
     
+    public ACLMessage getMejorPrecio(){
+        int precio = 1000000000;
+        int index = 0;
+        for(int i =0; i<mensajesPendientes.size(); i++){
+            if(precio > Integer.parseInt(mensajesPendientes.get(i).getContent())){
+                index = i;
+                precio = Integer.parseInt(mensajesPendientes.get(i).getContent());
+            }
+        }
+        
+        return mensajesPendientes.get(index);
+    }
+    
+    
     //Clases internas que representan las tareas del agente
+    
+    public class TareaRecepcionMensajes extends CyclicBehaviour {
+
+        @Override
+        public void action() {
+
+            MessageTemplate plantilla = MessageTemplate.MatchPerformative(ACLMessage.INFORM);
+            ACLMessage mensaje = myAgent.receive(plantilla);
+            if (mensaje != null) {
+                mensajesPendientes.add(mensaje);
+                addBehaviour(new TareaComprar());
+            } 
+            else
+                block();
+            
+        }
+    
+    }
+    
+    public class TareaComprar extends OneShotBehaviour{
+
+        @Override
+        public void action() {
+            ACLMessage index = getMejorPrecio();
+            ACLMessage mensaje;
+            
+            if(mensajesPendientes.remove(0).getContent()=="Cosecha"){
+                Fondos -=Integer.parseInt(index.getContent());
+                StockCosechas ++;
+                mensaje = new ACLMessage(ACLMessage.INFORM);
+                mensaje.setSender(myAgent.getAID());
+                mensaje.addReceiver(agentesMonitor.get(0));
+                mensaje.setContent(Integer.toString(StockCosechas));
+            }else if (Integer.parseInt(index.getContent())<Fondos) {
+                    mensaje = new ACLMessage(ACLMessage.INFORM);
+                    mensaje.setSender(myAgent.getAID());
+                    mensaje.addReceiver(mensajesPendientes.get(0).getSender());
+                    mensaje.setContent("Confirmar");
+                    mensajesPendientes.clear();
+                    
+                    myAgent.send(mensaje);
+            }
+        }
+            
+        }
         
       public class RecibirInversion extends TickerBehaviour {
 
@@ -121,7 +185,7 @@ public class AgenteMercado extends Agent {
         @Override
         protected void onTick() {
             
-            ACLMessage mensaje;
+            ACLMessage mensaje = null;
             if (agentesConsola != null) {
                 if (!mensajesPendientes.isEmpty()) {
                     mensaje = new ACLMessage(ACLMessage.INFORM);
@@ -138,6 +202,7 @@ public class AgenteMercado extends Agent {
             for (int c=0; c<agentesAgricultor.size(); c++){
                 msg.addReceiver(agentesAgricultor.get(c));
             }
+            mensaje.setContent("Comprar");
             send(msg);
 
         }
@@ -178,24 +243,47 @@ public class AgenteMercado extends Agent {
 		fe.printStackTrace();
             }
             
-            //Busca agentes operación
+            //Busca agentes consola
             template = new DFAgentDescription();
             sd = new ServiceDescription();
-            sd.setName("Operacion");
+            sd.setName("Consola");
             template.addServices(sd);
             
             try {
                 result = DFService.search(myAgent, template); 
                 if (result.length > 0) {
-                    agentesAgricultor.clear();
+                    agentesConsola.clear();
                     for (int i = 0; i < result.length; ++i) {
-                        agentesAgricultor.set(i, result[i].getName());
+                        agentesConsola.set(i, result[i].getName());
+                    }
+                }
+                else {
+                    //No se han encontrado agentes consola
+                    agentesConsola = null;
+                }
+            }
+            catch (FIPAException fe) {
+		fe.printStackTrace();
+            }
+            
+            //Busca agentes Monitor
+            template = new DFAgentDescription();
+            sd = new ServiceDescription();
+            sd.setName("Monitor");
+            template.addServices(sd);
+            
+            try {
+                result = DFService.search(myAgent, template); 
+                if (result.length > 0) {
+                    agentesMonitor.clear();
+                    for (int i = 0; i < result.length; ++i) {
+                        agentesMonitor.set(i, result[i].getName());
                     }
                     
                 }
                 else {
                     //No se han encontrado agentes operación
-                    agentesAgricultor = null;
+                    agentesMonitor = null;
                     
                 } 
             }
